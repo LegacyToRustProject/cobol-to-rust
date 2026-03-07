@@ -1,0 +1,55 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BATCHUPD.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-AMOUNT     PIC 9(9)V99 VALUE ZEROS.
+       01  WS-BALANCE    PIC S9(11)V99 VALUE ZEROS.
+       01  WS-ACCT-NO    PIC 9(10) VALUE ZEROS.
+       01  WS-EOF        PIC 9 VALUE 0.
+
+       01  WS-TRANSACTION.
+           05 TR-ACCT    PIC 9(10).
+           05 TR-TYPE    PIC X.
+           05 TR-AMOUNT  PIC 9(9)V99.
+
+       FILE SECTION.
+       FD  INPUT-FILE.
+       01  INPUT-RECORD  PIC X(21).
+
+       FD  OUTPUT-FILE.
+       01  OUTPUT-RECORD PIC X(80).
+
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           OPEN INPUT INPUT-FILE
+                OUTPUT OUTPUT-FILE
+           PERFORM READ-PROCESS UNTIL WS-EOF = 1
+           CLOSE INPUT-FILE OUTPUT-FILE
+           STOP RUN.
+
+       READ-PROCESS.
+           READ INPUT-FILE INTO WS-TRANSACTION
+               AT END MOVE 1 TO WS-EOF
+           END-READ
+           IF WS-EOF = 0
+               PERFORM PROCESS-RECORD
+           END-IF.
+
+       PROCESS-RECORD.
+           IF TR-TYPE = 'D'
+               ADD TR-AMOUNT TO WS-BALANCE
+           ELSE IF TR-TYPE = 'W'
+               SUBTRACT TR-AMOUNT FROM WS-BALANCE
+           END-IF
+           MOVE TR-ACCT TO WS-ACCT-NO
+           PERFORM WRITE-OUTPUT.
+
+       WRITE-OUTPUT.
+           MOVE SPACES TO OUTPUT-RECORD
+           STRING "ACCT:" DELIMITED SPACE
+                  WS-ACCT-NO DELIMITED SPACE
+                  " BAL:" DELIMITED SPACE
+                  WS-BALANCE DELIMITED SPACE
+                  INTO OUTPUT-RECORD
+           WRITE OUTPUT-RECORD.

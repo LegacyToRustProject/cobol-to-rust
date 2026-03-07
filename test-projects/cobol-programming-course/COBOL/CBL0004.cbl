@@ -1,0 +1,26 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CBL0004.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT NAMES-FILE ASSIGN TO "names.dat"
+               ORGANIZATION IS SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  NAMES-FILE.
+       01  NAME-RECORD    PIC X(30).
+       WORKING-STORAGE SECTION.
+       01  WS-EOF         PIC 9 VALUE 0.
+       01  WS-COUNT       PIC 9(3) VALUE 0.
+       PROCEDURE DIVISION.
+           OPEN INPUT NAMES-FILE.
+           PERFORM READ-NAMES UNTIL WS-EOF = 1.
+           CLOSE NAMES-FILE.
+           DISPLAY "TOTAL NAMES: " WS-COUNT.
+           STOP RUN.
+       READ-NAMES.
+           READ NAMES-FILE INTO NAME-RECORD
+               AT END MOVE 1 TO WS-EOF.
+           IF WS-EOF = 0
+               ADD 1 TO WS-COUNT
+               DISPLAY "NAME: " NAME-RECORD.
