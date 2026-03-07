@@ -1,5 +1,6 @@
 pub mod comparator;
 pub mod compiler;
+pub mod convergence;
 pub mod fix_loop;
 
 pub use comparator::{compare_outputs, ComparisonResult};
