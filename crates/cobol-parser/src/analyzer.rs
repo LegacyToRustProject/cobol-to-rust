@@ -135,14 +135,38 @@ fn parse_data_division(lines: &[&str]) -> Option<DataDivision> {
     let (start, end) = find_division_range(lines, "DATA")?;
     let section = &lines[start..end];
 
+    let fs_re = Regex::new(r"(?i)FILE\s+SECTION").unwrap();
     let ws_re = Regex::new(r"(?i)WORKING-STORAGE\s+SECTION").unwrap();
+    let fd_re = Regex::new(r"(?i)^\s*FD\s+([\w-]+)").unwrap();
+
+    let mut fs_start = None;
     let mut ws_start = None;
 
     for (i, line) in section.iter().enumerate() {
+        if fs_re.is_match(line) {
+            fs_start = Some(i + 1);
+        }
         if ws_re.is_match(line) {
             ws_start = Some(i + 1);
         }
     }
+
+    // Parse FILE SECTION: collect FD (file description) names
+    let file_section = if let Some(fs) = fs_start {
+        let fs_end = ws_start.unwrap_or(section.len());
+        let fs_lines = &section[fs..fs_end];
+        fs_lines
+            .iter()
+            .filter_map(|line| {
+                fd_re.captures(line).map(|cap| FileDescription {
+                    fd_name: cap[1].to_string(),
+                    record: Vec::new(),
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let working_storage = if let Some(ws) = ws_start {
         let ws_lines: Vec<&str> = section[ws..].to_vec();
@@ -152,7 +176,7 @@ fn parse_data_division(lines: &[&str]) -> Option<DataDivision> {
     };
 
     Some(DataDivision {
-        file_section: Vec::new(),
+        file_section,
         working_storage,
     })
 }
@@ -414,10 +438,19 @@ pub fn analyze_file(path: &Path, source: &str) -> Result<ProgramSummary> {
         .map(|p| p.paragraphs.len())
         .unwrap_or(0);
 
-    let file_io = program
+    // file_io is true if:
+    // (a) ENVIRONMENT DIVISION has FILE-CONTROL entries, OR
+    // (b) DATA DIVISION has a FILE SECTION (FD declarations) —
+    //     some programs define FILE SECTION without ENVIRONMENT/FILE-CONTROL
+    let has_file_controls = program
         .environment
         .as_ref()
         .is_some_and(|e| !e.file_controls.is_empty());
+    let has_file_section = program
+        .data
+        .as_ref()
+        .is_some_and(|d| !d.file_section.is_empty());
+    let file_io = has_file_controls || has_file_section;
 
     Ok(ProgramSummary {
         file_path: path.to_string_lossy().to_string(),
@@ -491,5 +524,66 @@ mod tests {
         assert_eq!(summary.program_id, "HELLO-WORLD");
         assert!(summary.divisions.contains(&"PROCEDURE".to_string()));
         assert!(!summary.file_io);
+    }
+
+    // --- file_io detection ---
+
+    const WITH_FILE_CONTROL: &str = r#"       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FILE-READ.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT INPUT-FILE ASSIGN TO "input.dat".
+       DATA DIVISION.
+       FILE SECTION.
+       FD INPUT-FILE.
+       01 INPUT-REC PIC X(80).
+       WORKING-STORAGE SECTION.
+       01 WS-EOF PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+           STOP RUN.
+"#;
+
+    const WITH_FILE_SECTION_ONLY: &str = r#"       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BATCHUPD.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  INPUT-FILE.
+       01  INPUT-RECORD  PIC X(21).
+       FD  OUTPUT-FILE.
+       01  OUTPUT-RECORD PIC X(80).
+       WORKING-STORAGE SECTION.
+       01  WS-EOF PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+           STOP RUN.
+"#;
+
+    #[test]
+    fn test_file_io_detected_via_file_control() {
+        let summary = analyze_file(Path::new("test.cob"), WITH_FILE_CONTROL).unwrap();
+        assert!(
+            summary.file_io,
+            "file_io should be true when FILE-CONTROL is present"
+        );
+    }
+
+    #[test]
+    fn test_file_io_detected_via_file_section_only() {
+        // Programs like BATCHUPD define FILE SECTION without ENVIRONMENT/FILE-CONTROL.
+        // The parser should still detect file I/O from the FD declarations.
+        let summary = analyze_file(Path::new("test.cob"), WITH_FILE_SECTION_ONLY).unwrap();
+        assert!(
+            summary.file_io,
+            "file_io should be true when FILE SECTION (FD) is present even without FILE-CONTROL"
+        );
+    }
+
+    #[test]
+    fn test_file_io_false_for_no_files() {
+        let summary = analyze_file(Path::new("test.cob"), HELLO_WORLD).unwrap();
+        assert!(
+            !summary.file_io,
+            "file_io should be false for programs with no file access"
+        );
     }
 }
