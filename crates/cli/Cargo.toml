@@ -1,0 +1,21 @@
+[package]
+name = "cobol-to-rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cobol-to-rust"
+path = "src/main.rs"
+
+[dependencies]
+cobol-parser.workspace = true
+rust-generator.workspace = true
+verifier.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde_json.workspace = true
+tempfile = "3"
