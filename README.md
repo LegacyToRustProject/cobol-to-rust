@@ -22,6 +22,23 @@ COBOL program (source + running instance)
 Verified Rust binary
 ```
 
+## Version Compatibility
+
+COBOL is unique: **the oldest version is the most common.** Most production systems run COBOL-85 or earlier dialects.
+
+| COBOL Standard | Priority | Notes |
+|----------------|----------|-------|
+| COBOL-85 | **First** | De facto standard. 90%+ of production COBOL. |
+| VS COBOL II (IBM) | **First** | IBM mainframe dialect. Banking standard. |
+| Enterprise COBOL (IBM) | Second | Modern IBM dialect with some OOP. |
+| COBOL 2002 | Third | OOP extensions. Rarely used in legacy. |
+| COBOL 2014/2023 | Fourth | Modern features. Almost no adoption. |
+| Micro Focus COBOL | Second | Common on distributed (non-mainframe) systems. |
+
+Unlike other languages, older = simpler = easier to convert. COBOL-85 has no objects, no exceptions, and predictable control flow. This is the sweet spot.
+
+Auto-detection: `cobol-to-rust analyze` detects the COBOL dialect and compiler-specific extensions.
+
 ## Key Challenges
 
 | COBOL Feature | Conversion Strategy |
