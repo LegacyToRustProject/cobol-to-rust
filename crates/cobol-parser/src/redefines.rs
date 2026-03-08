@@ -225,6 +225,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn numeric_pic(int_digits: u32, dec_digits: u32, signed: bool) -> PicClause {
         PicClause {
             raw: format!("9({})", int_digits),
