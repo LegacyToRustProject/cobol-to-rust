@@ -14,7 +14,6 @@
 ///          INTO WS-FIELD1, WS-FIELD2, WS-FIELD3.
 /// ```
 /// → Rust: `let parts: Vec<&str> = ws_input.splitn(3, ',').collect();`
-
 /// Describes one source field in a STRING statement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StringSource {
@@ -49,9 +48,9 @@ impl StringStatement {
             .map(|src| {
                 let field = to_rust_field_name(&src.variable);
                 match &src.delimiter {
-                    StringDelimiter::Space => format!("{{}}",),
-                    StringDelimiter::Size => format!("{{}}",),
-                    StringDelimiter::Literal(_) => format!("{{}}",),
+                    StringDelimiter::Space => "{}".to_string(),
+                    StringDelimiter::Size => "{}".to_string(),
+                    StringDelimiter::Literal(_) => "{}".to_string(),
                 }
                 .replace(
                     "{}",
@@ -147,7 +146,7 @@ pub fn parse_string_statement(line: &str) -> Option<StringStatement> {
     // Split on INTO to get sources portion and target
     let into_pos = trimmed.find(" INTO ")?;
     let sources_part = &trimmed[7..into_pos]; // skip "STRING "
-    let into_var = trimmed[into_pos + 6..].trim().to_string();
+    let _into_var = trimmed[into_pos + 6..].trim().to_string();
     // Convert target back to lowercase for original case
     let into_var_orig = {
         let pos = line.to_uppercase().find(" INTO ").unwrap() + 6;
@@ -212,7 +211,7 @@ pub fn parse_unstring_statement(line: &str) -> Option<UnstringStatement> {
     let del_pos = trimmed.find(" DELIMITED BY ")?;
     let into_pos = trimmed.find(" INTO ")?;
 
-    let source_var = trimmed[9..del_pos].trim().to_string(); // skip "UNSTRING "
+    let _source_var = trimmed[9..del_pos].trim().to_string(); // skip "UNSTRING "
     let delimiter_raw = trimmed[del_pos + 14..into_pos].trim().to_string();
     let delimiter = delimiter_raw.trim_matches('"').to_string();
     let into_part = &trimmed[into_pos + 6..];

@@ -9,7 +9,7 @@
 ///    is less than `threshold`
 /// 3. Mark as converged once `min_windows` consecutive plateaus are seen
 
-/// Tracks accuracy convergence over a sliding window of batch results.
+// Tracks accuracy convergence over a sliding window of batch results.
 #[derive(Debug)]
 pub struct ConvergenceTracker {
     /// Number of records per batch
