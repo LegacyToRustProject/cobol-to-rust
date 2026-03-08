@@ -45,6 +45,10 @@ pub struct DataDivision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDescription {
     pub fd_name: String,
+    /// Fixed record length from `RECORD CONTAINS N CHARACTERS` clause
+    pub record_len: Option<usize>,
+    /// Block factor from `BLOCK CONTAINS N RECORDS`
+    pub block_contains: Option<usize>,
     pub record: Vec<DataItem>,
 }
 
@@ -131,6 +135,7 @@ pub struct MoveStatement {
 pub struct ComputeStatement {
     pub target: String,
     pub expression: String,
+    pub rounded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

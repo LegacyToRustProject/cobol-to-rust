@@ -151,19 +151,58 @@ fn parse_data_division(lines: &[&str]) -> Option<DataDivision> {
         }
     }
 
-    // Parse FILE SECTION: collect FD (file description) names
+    // Parse FILE SECTION: collect FD (file description) names + RECORD/BLOCK CONTAINS
+    let record_contains_re = Regex::new(r"(?i)RECORD\s+CONTAINS\s+(\d+)\s+CHARACTERS?").unwrap();
+    let block_contains_re = Regex::new(r"(?i)BLOCK\s+CONTAINS\s+(\d+)\s+RECORDS?").unwrap();
+
     let file_section = if let Some(fs) = fs_start {
         let fs_end = ws_start.unwrap_or(section.len());
         let fs_lines = &section[fs..fs_end];
-        fs_lines
-            .iter()
-            .filter_map(|line| {
-                fd_re.captures(line).map(|cap| FileDescription {
-                    fd_name: cap[1].to_string(),
+        let mut fds: Vec<FileDescription> = Vec::new();
+        let mut i = 0;
+        while i < fs_lines.len() {
+            let line = fs_lines[i];
+            if let Some(cap) = fd_re.captures(line) {
+                let fd_name = cap[1].to_string();
+                let mut record_len: Option<usize> = None;
+                let mut block_contains: Option<usize> = None;
+                // Look ahead for RECORD/BLOCK CONTAINS on subsequent lines
+                let mut j = i + 1;
+                while j < fs_lines.len() && !fd_re.is_match(fs_lines[j]) {
+                    // Stop at level-01 data items (they begin the record layout)
+                    let trimmed = fs_lines[j].trim();
+                    if trimmed.starts_with("01 ") || trimmed.starts_with("01  ") {
+                        break;
+                    }
+                    if let Some(rc) = record_contains_re.captures(fs_lines[j]) {
+                        record_len = rc[1].parse().ok();
+                    }
+                    if let Some(bc) = block_contains_re.captures(fs_lines[j]) {
+                        block_contains = bc[1].parse().ok();
+                    }
+                    j += 1;
+                }
+                // Also check the FD line itself for inline RECORD CONTAINS
+                if record_len.is_none() {
+                    if let Some(rc) = record_contains_re.captures(line) {
+                        record_len = rc[1].parse().ok();
+                    }
+                }
+                if block_contains.is_none() {
+                    if let Some(bc) = block_contains_re.captures(line) {
+                        block_contains = bc[1].parse().ok();
+                    }
+                }
+                fds.push(FileDescription {
+                    fd_name,
+                    record_len,
+                    block_contains,
                     record: Vec::new(),
-                })
-            })
-            .collect()
+                });
+            }
+            i += 1;
+        }
+        fds
     } else {
         Vec::new()
     };
@@ -318,11 +357,14 @@ fn parse_move_statement(line: &str) -> Statement {
 }
 
 fn parse_compute_statement(line: &str) -> Statement {
-    let re = Regex::new(r"(?i)COMPUTE\s+([\w-]+)\s*=\s*(.+?)\.?\s*$").unwrap();
+    // COMPUTE [target] [ROUNDED] = [expression]
+    let re = Regex::new(r"(?i)COMPUTE\s+([\w-]+)(\s+ROUNDED)?\s*=\s*(.+?)\.?\s*$").unwrap();
     if let Some(cap) = re.captures(line.trim()) {
+        let rounded = cap.get(2).is_some();
         Statement::Compute(ComputeStatement {
             target: cap[1].to_string(),
-            expression: cap[2].trim().to_string(),
+            expression: cap[3].trim().to_string(),
+            rounded,
         })
     } else {
         Statement::Unknown(line.trim().to_string())
@@ -438,10 +480,6 @@ pub fn analyze_file(path: &Path, source: &str) -> Result<ProgramSummary> {
         .map(|p| p.paragraphs.len())
         .unwrap_or(0);
 
-    // file_io is true if:
-    // (a) ENVIRONMENT DIVISION has FILE-CONTROL entries, OR
-    // (b) DATA DIVISION has a FILE SECTION (FD declarations) —
-    //     some programs define FILE SECTION without ENVIRONMENT/FILE-CONTROL
     let has_file_controls = program
         .environment
         .as_ref()
@@ -584,6 +622,153 @@ mod tests {
         assert!(
             !summary.file_io,
             "file_io should be false for programs with no file access"
+        );
+    }
+
+    // --- FD record_len / block_contains parsing ---
+
+    const WITH_RECORD_CONTAINS: &str = r#"       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FIXED-READ.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  TRANS-FILE
+           RECORD CONTAINS 80 CHARACTERS
+           BLOCK CONTAINS 10 RECORDS.
+       01  TRANS-REC PIC X(80).
+       WORKING-STORAGE SECTION.
+       01  WS-EOF PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+           STOP RUN.
+"#;
+
+    #[test]
+    fn test_fd_record_contains_parsed() {
+        let program = parse_cobol_source(WITH_RECORD_CONTAINS).unwrap();
+        let data = program.data.unwrap();
+        assert_eq!(data.file_section.len(), 1);
+        let fd = &data.file_section[0];
+        assert_eq!(fd.fd_name, "TRANS-FILE");
+        assert_eq!(fd.record_len, Some(80));
+        assert_eq!(fd.block_contains, Some(10));
+    }
+
+    const WITH_MULTI_FD: &str = r#"       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MULTI-FD.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  INPUT-FILE
+           RECORD CONTAINS 21 CHARACTERS.
+       01  INPUT-RECORD PIC X(21).
+       FD  OUTPUT-FILE
+           RECORD CONTAINS 80 CHARACTERS.
+       01  OUTPUT-RECORD PIC X(80).
+       WORKING-STORAGE SECTION.
+       01  WS-EOF PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+           STOP RUN.
+"#;
+
+    #[test]
+    fn test_fd_multiple_fds_parsed() {
+        let program = parse_cobol_source(WITH_MULTI_FD).unwrap();
+        let data = program.data.unwrap();
+        assert_eq!(data.file_section.len(), 2);
+        assert_eq!(data.file_section[0].fd_name, "INPUT-FILE");
+        assert_eq!(data.file_section[0].record_len, Some(21));
+        assert_eq!(data.file_section[1].fd_name, "OUTPUT-FILE");
+        assert_eq!(data.file_section[1].record_len, Some(80));
+    }
+
+    #[test]
+    fn test_fd_no_record_contains() {
+        // FD without RECORD CONTAINS should have record_len = None
+        let program = parse_cobol_source(WITH_FILE_SECTION_ONLY).unwrap();
+        let data = program.data.unwrap();
+        assert_eq!(data.file_section.len(), 2);
+        assert_eq!(data.file_section[0].record_len, None);
+        assert_eq!(data.file_section[0].block_contains, None);
+    }
+
+    // --- COMPUTE ROUNDED ---
+
+    #[test]
+    fn test_compute_rounded_detected() {
+        let stmt = parse_compute_statement("COMPUTE WS-RESULT ROUNDED = WS-A / WS-B.");
+        if let Statement::Compute(cs) = stmt {
+            assert_eq!(cs.target, "WS-RESULT");
+            assert!(cs.rounded, "ROUNDED keyword should be detected");
+            assert_eq!(cs.expression, "WS-A / WS-B");
+        } else {
+            panic!("Expected Compute statement");
+        }
+    }
+
+    #[test]
+    fn test_compute_without_rounded() {
+        let stmt = parse_compute_statement("COMPUTE WS-RESULT = WS-A + WS-B.");
+        if let Statement::Compute(cs) = stmt {
+            assert_eq!(cs.target, "WS-RESULT");
+            assert!(
+                !cs.rounded,
+                "rounded should be false without ROUNDED keyword"
+            );
+            assert_eq!(cs.expression, "WS-A + WS-B");
+        } else {
+            panic!("Expected Compute statement");
+        }
+    }
+
+    // --- Fixed-length sequential read/write pattern ---
+
+    /// Verify that a fixed-length COBOL sequential file test can be simulated.
+    /// This test validates the expected Rust read_exact pattern for 80-byte records.
+    #[test]
+    fn test_fixed_length_sequential_read() {
+        // Simulate what the Rust codegen should produce for a RECORD CONTAINS 80 CHARACTERS FD:
+        // read_exact reads exactly N bytes per record regardless of newlines.
+        let record_len: usize = 80;
+        let mut data = Vec::new();
+        // Write 3 fixed-length records (no newlines - true sequential file)
+        for i in 0u8..3 {
+            let mut rec = vec![b'A' + i; record_len];
+            rec[79] = b'0' + i; // last byte marker
+            data.extend_from_slice(&rec);
+        }
+
+        let mut cursor = std::io::Cursor::new(&data);
+        use std::io::Read;
+        let mut records_read = 0usize;
+        let mut buf = vec![0u8; record_len];
+        while cursor.read_exact(&mut buf).is_ok() {
+            records_read += 1;
+            // Each record should be exactly record_len bytes
+            assert_eq!(buf.len(), record_len);
+        }
+        assert_eq!(
+            records_read, 3,
+            "Should read exactly 3 fixed-length records"
+        );
+    }
+
+    #[test]
+    fn test_fixed_length_sequential_write() {
+        let record_len: usize = 21; // BATCHUPD-style 21-char record
+        use std::io::Write;
+        let mut output = Vec::new();
+        let records = vec!["12345678901D000000099", "98765432100W000001000"];
+        for rec in &records {
+            let bytes = rec.as_bytes();
+            // Pad or truncate to fixed length
+            let mut padded = vec![b' '; record_len];
+            let copy_len = bytes.len().min(record_len);
+            padded[..copy_len].copy_from_slice(&bytes[..copy_len]);
+            output.write_all(&padded).unwrap();
+        }
+        // Total output must be exactly records * record_len bytes
+        assert_eq!(
+            output.len(),
+            records.len() * record_len,
+            "Fixed-length output must have no padding/gaps between records"
         );
     }
 }
