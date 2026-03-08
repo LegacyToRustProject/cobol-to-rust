@@ -110,9 +110,100 @@ pub enum Statement {
     Open(OpenStatement),
     Close(CloseStatement),
     Accept(String),
+    ExecSql(ExecSqlStatement),
     StopRun,
     GoBack,
     Unknown(String),
+}
+
+/// COBOL EXEC SQL ... END-EXEC statement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExecSqlStatement {
+    /// SELECT col [, col...] INTO :var [, :var...] FROM table [WHERE cond]
+    Select(SqlSelect),
+    /// INSERT INTO table (cols) VALUES (:vars)
+    Insert(SqlInsert),
+    /// UPDATE table SET col = :var [WHERE cond]
+    Update(SqlUpdate),
+    /// DELETE FROM table [WHERE cond]
+    Delete(SqlDelete),
+    /// DECLARE cursor CURSOR FOR SELECT ...
+    DeclareCursor(SqlDeclareCursor),
+    /// OPEN cursor
+    OpenCursor(String),
+    /// FETCH cursor INTO :var [, :var...]
+    FetchCursor(SqlFetch),
+    /// CLOSE cursor
+    CloseCursor(String),
+    /// COMMIT
+    Commit,
+    /// ROLLBACK
+    Rollback,
+    /// WHENEVER condition action
+    Whenever(SqlWhenever),
+    /// Any other EXEC SQL not yet handled
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlSelect {
+    pub columns: Vec<String>,
+    pub into_vars: Vec<String>,
+    pub table: String,
+    pub where_clause: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlInsert {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlUpdate {
+    pub table: String,
+    /// List of (column, :variable) pairs
+    pub set_clauses: Vec<(String, String)>,
+    pub where_clause: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlDelete {
+    pub table: String,
+    pub where_clause: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlDeclareCursor {
+    pub cursor_name: String,
+    pub select: SqlSelect,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlFetch {
+    pub cursor_name: String,
+    pub into_vars: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlWhenever {
+    pub condition: SqlWheneverCondition,
+    pub action: SqlWheneverAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SqlWheneverCondition {
+    NotFound,
+    SqlError,
+    SqlWarning,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SqlWheneverAction {
+    Continue,
+    GoTo(String),
+    Stop,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

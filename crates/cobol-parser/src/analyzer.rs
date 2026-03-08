@@ -222,6 +222,14 @@ fn parse_statement(line: &str) -> Option<Statement> {
         Some(parse_multiply_statement(line))
     } else if trimmed.starts_with("PERFORM") {
         Some(parse_perform_statement(line))
+    } else if trimmed.starts_with("EXEC SQL") {
+        // Single-line EXEC SQL ... END-EXEC
+        let sql_start = line.to_uppercase().find("EXEC SQL").unwrap() + 8;
+        let sql_end = line.to_uppercase().find("END-EXEC").unwrap_or(line.len());
+        let sql_body = line[sql_start..sql_end].trim().trim_end_matches('.').trim();
+        Some(Statement::ExecSql(crate::exec_sql::parse_exec_sql(
+            sql_body,
+        )))
     } else if trimmed == "STOP RUN" {
         Some(Statement::StopRun)
     } else if trimmed == "GOBACK" {
